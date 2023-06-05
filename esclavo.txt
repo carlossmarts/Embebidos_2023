@@ -1,0 +1,197 @@
+#include <Wire.h>
+
+const short ESCLAVO = 1; //Dirección del esclavo
+
+//config de  pines
+const int GL = 13;//greenLed
+const int GB = 12;//greenButton
+const int RL = 11;//redLed
+const int RB = 10;//redButton
+const int YL = 9;//yellowLed
+const int YB = 8;//yellowButton
+const int BL = 7;//blueLed
+const int BB = 6;//blueButton
+const int OL = 5;//orangeLed
+const int OB = 4;//orangeButton
+
+int notas[5]={440, 494, 554, 587, 659};
+char leds[5]={'G', 'R', 'Y', 'B', 'O'};
+int buzzer = 3;
+
+
+//variables del juego
+volatile char color;
+const short OK = 1;
+const short ERR = 0;
+const short ESPERAR = -1;
+String secuencia;
+boolean error;
+boolean jugando;
+int targetPos;
+short status;
+boolean reprod;
+
+void setup()
+{
+    pinMode(GL, OUTPUT);
+    pinMode(GB, INPUT);
+    pinMode(RL, OUTPUT);
+    pinMode(RB, INPUT);
+    pinMode(YL, OUTPUT);
+    pinMode(YB, INPUT);
+    pinMode(BL, OUTPUT);
+    pinMode(BB, INPUT);
+    pinMode(OL, OUTPUT);
+    pinMode(OB, INPUT);
+    Serial.begin(9600);
+  
+  	secuencia = "";
+  	jugando = false;
+  	error = false;
+  	targetPos = 0;
+  	status = ESPERAR;
+  	reprod = false;
+  
+  	Wire.begin(ESCLAVO);
+  	Wire.onReceive(receive);
+  	Wire.onRequest(response);
+}
+
+void loop()
+{  	
+  	if(reprod){
+  		reproducirSecuencia();
+    }
+      
+  	if(jugando){
+    	jugar();
+    }
+  	
+}
+
+void receive(int k){
+	if (Wire.available()>1){
+      	int len = Wire.read();
+      	color = Wire.read();
+      	Serial.print("Se recibio del maestro el color ");
+      	Serial.println(color);
+        if(len == 1){
+        	secuencia = "";
+        }
+      	secuencia += color;
+    }
+  	jugando = true;
+  	status = ESPERAR;
+    reprod = true;
+  	
+}
+
+void response(){
+    if(jugando){
+    	Wire.write(ESPERAR);
+    } else{
+      	Wire.write(status);
+      	status = ESPERAR;
+    }
+}
+
+void jugar(){
+	if(error){
+      	status = ERR;
+      	error = false;
+      	jugando = false;
+    } else{
+        int largo = secuencia.length();
+        while(targetPos<largo && !error){
+            int i = 0;  	
+            while(i<5 && !error){
+              error = evaluar(leds[i]);
+              i++;
+            }
+        }
+      	if(!error){
+          	status = OK;
+          	jugando = false;
+        }
+      	
+    }
+}
+
+
+boolean evaluar(char led){
+  	boolean error = false;
+  	switch(led){
+  		case 'G':
+      		error = evaluarBoton(GB, led);
+      		break;
+      	case'R':
+      		error = evaluarBoton(RB, led);
+      		break;
+      	case'Y':
+    		error = evaluarBoton(YB, led);
+      		break;
+      	case'B':
+  			error = evaluarBoton(BB, led);
+      		break;
+      	case'O':
+      		error = evaluarBoton(OB, led);
+      		break;
+    }
+  	return error;
+}
+
+boolean evaluarBoton(int button, char led){
+  	boolean error = false;
+  	char target = secuencia[targetPos];
+	if(digitalRead(button)==HIGH){
+      	play(led);
+      	if(led == target){
+          	targetPos++;
+        } else{
+            error = true;
+        }
+    } 
+    return error;
+}
+
+void play(char led){
+  	int pinLed;
+  	switch(led){
+  		case 'G':
+      		tone(buzzer, notas[0], 200);
+     		pinLed = GL;
+      		break;
+      	case 'R':
+      		tone(buzzer, notas[1], 200);
+      		pinLed = RL;
+      		break;
+      	case 'Y':
+      		tone(buzzer, notas[2], 200);
+      		pinLed = YL;
+      		break;
+      	case 'B':
+      		tone(buzzer, notas[3], 200);
+      		pinLed = BL;
+      		break;
+      	case 'O':
+      		tone(buzzer, notas[4], 200);
+      		pinLed = OL;
+      		break;
+      	default:
+      		break;
+    }
+  	digitalWrite(pinLed, HIGH);
+  	delay(500);
+  	digitalWrite(pinLed, LOW);
+}
+
+void reproducirSecuencia(){
+  	Serial.print("Se reproduce secuencia: ");
+  	Serial.println(secuencia);
+  	for (int i=0; i<secuencia.length(); i++){
+      	play(secuencia[i]);
+    } 
+  	error = false;
+  	targetPos = 0;
+  	reprod = false;
+}

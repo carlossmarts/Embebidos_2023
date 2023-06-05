@@ -1,0 +1,321 @@
+#include <Wire.h>
+#include <Keypad.h>
+#include <LiquidCrystal.h>
+
+//config de keypad
+const byte FILAS = 4;
+const byte COLS = 4;
+
+char teclas [FILAS][COLS] = {
+	'1', '2', '3', 'A',
+    '4', '5', '6', 'B',
+    '7', '8', '9', 'C',
+    '*', '0', '#', 'D'
+};
+
+byte pinesFilas[FILAS] = {12,11,10,9};
+byte pinesCols[COLS] = {8,7,6,5};
+
+Keypad kp = Keypad(makeKeymap(teclas), pinesFilas, pinesCols, FILAS, COLS);
+
+
+//config del display
+const byte MAX_CHARS = 16;
+const byte MAX_ROWS = 2;
+const byte RS = A1;
+const byte EN = A0;
+const byte DB4 = A2;
+const byte DB5 = A3;
+const byte DB6 = 2;
+const byte DB7 = 3;
+LiquidCrystal lcd(RS, EN, DB4, DB5, DB6, DB7);
+int pos;
+bool row;
+
+
+const short ESCLAVO = 1; //Dirección del esclavo
+int res;
+
+//variables para el juego
+
+const short OK = 1;
+const short ERR = 0;
+char colores[5]={'G', 'R', 'Y', 'B', 'O'};
+String secuencia;
+boolean jugando;
+int jugadores;
+String dificultad;
+int dificultadColores;
+int jugadorActivo;
+int reintentosJ1;
+int reintentosJ2;
+boolean esperandoAlJugador;
+boolean confJuego;
+boolean replay;
+void setup()
+{
+  	//inicializar display
+  	lcd.begin(MAX_CHARS, MAX_ROWS);
+	pos = 0;
+	row = 0;
+ 	lcd.setCursor(pos, row);
+   	//Inicia como maestro
+    Wire.begin(); 
+    Serial.begin(9600);
+  	randomSeed(analogRead(0));
+  
+  	reset();
+}
+
+void loop()
+{
+  	if(jugando){
+  		jugar();
+    } else {
+      	if(confJuego){
+      		configurarJuego();
+        } else{
+          	lcd.setCursor(0,0);
+      		lcd.print("#. Nuevo juego");
+        	char tecla = kp.getKey();
+            if (tecla == '#'){
+                confJuego = true;
+            }
+        }
+    }
+}
+
+
+
+
+/************************
+* funciones para el juego
+************************/
+
+//ConfigurarJuego
+void configurarJuego(){
+  
+  	if(jugadores != 0 && dificultad != ""){
+      	lcd.clear();
+      	lcd.setCursor(0,0);
+      	lcd.print("iniciando juego");
+      	delay(500);
+      	jugando = true;
+      	lcd.clear();
+      	Serial.println("Juego configurado ");
+      	Serial.print("Dificultad: ");
+      	Serial.println(dificultad);	
+      	Serial.print("Cantidad de colores: ");
+      	Serial.println(dificultadColores);
+      	Serial.print("Reintentos: ");
+      	Serial.println(reintentosJ1);
+      	Serial.print("Cantidad de jugadores: ");
+      	Serial.println(jugadores);
+    } else {
+      	lcd.setCursor(0,0);
+        if(jugadores == 0){
+          	//Si aun no se seteo la cant. de jugadores
+            lcd.print("Nro. Jugadores");
+          	lcd.setCursor(0,1);
+          	lcd.print("1. Uno - 2.Dos");
+            char tecla = kp.getKey();
+            switch(tecla){
+                case '1':
+                    jugadores = 1;
+                    break;
+                case '2':
+                    jugadores = 2;
+                    break;
+                default:
+                    break;
+            }
+          	if(jugadores != 0){
+          		lcd.clear();
+              	jugadorActivo = 1;
+            }
+        } else {
+          	//si aun no se seteo la dificultad
+            if(dificultad == 0){
+              	
+                lcd.print("Nivel: A.Bajo");
+              	lcd.setCursor(0,1);
+          		lcd.print("B.Medio C.Alto");
+                char tecla = kp.getKey();
+                switch(tecla){
+                    case 'A':
+                        dificultad = "baja";
+                  		reintentosJ1 = 3;
+                  		reintentosJ2 = 3;
+                  		dificultadColores = 3;
+                        break;
+                    case 'B':
+                        dificultad = "medio";
+                  		reintentosJ1 = 2;
+                  		reintentosJ2 = 2;
+                  		dificultadColores = 4;
+                        break;
+                    case 'C':
+                        dificultad = "alta";
+                  		reintentosJ1 = 1;
+                  		reintentosJ2 = 1;
+                  		dificultadColores = 5;
+                        break;
+                    default:
+                        break;
+                }
+                if(dificultad != ""){
+                	lcd.clear();
+                }
+            }
+        }
+    }
+}
+
+
+
+//Jugar
+void jugar(){
+  	lcd.setCursor(0,0);
+  	lcd.print("J: J");
+  	lcd.print(jugadorActivo);
+  	lcd.print(" ");
+  	lcd.print("NroES: ");
+  	lcd.print(secuencia.length());
+  	lcd.setCursor(0,1);
+  	lcd.print("Reintentos:");
+    if(jugadorActivo == 1){
+    	lcd.print(reintentosJ1);
+    } else{
+    	lcd.print(reintentosJ2);
+    }
+  
+  	
+    if(!esperandoAlJugador){
+      	/*
+        Si recien empieza o el jugador ya jugó, se agrega un 
+        color a la secuencia y se envia al jugador
+        */
+      	if(!replay){
+      		agregarASecuencia();
+      		Serial.print("Se envia para el jugador ");
+      		Serial.print(jugadorActivo);
+        	Serial.print(" la secuencia ");
+        	Serial.println(secuencia);
+        }
+      	send();
+      	esperandoAlJugador = true;
+    } else{
+      	/*
+        Sino, se queda esperando que el esclavo informe el resultado
+        de la jugada
+        */
+    	request();
+    }
+  	
+	
+}
+
+
+//Agregar color a la secuencia
+void agregarASecuencia(){
+  	int rand = random(0,dificultadColores);
+	secuencia += colores[rand]; 
+}
+
+
+//Envia orden
+void send(){
+  	Wire.beginTransmission(ESCLAVO);  
+  	if (!replay){
+    	int len = secuencia.length();
+  		char color = secuencia[len-1];
+  		Wire.write(len);
+      	Wire.write(color);
+    } else{
+      	//Le envia una señal para que vuelva a reproducir sin
+      	//agregar un caracter a la secuencia
+      	replay = false;
+    }
+  	
+  	Wire.endTransmission();
+}
+
+//solicita respuesta
+void request(){
+  	//Maximo de bytes a recibir como respuesta
+	short MAX = 1; 
+  	Wire.requestFrom(ESCLAVO, MAX);
+  	
+    if(Wire.available())
+    {
+        int resultado = Wire.read();
+        if(resultado == OK){
+        	Serial.println("Resultado OK, extender secuencia");
+          	esperandoAlJugador = false;
+          	switchJugador();
+        } else if(resultado == ERR) {
+        	Serial.println("Error, decrementar reintentos");
+          	if(jugadorActivo == 1){
+          		reintentosJ1 --;
+            } else {
+            	reintentosJ2 --;
+            }
+          	replay = true;
+          	esperandoAlJugador = false;
+        } else {
+          	//espera un seg antes de mandar otra solicitud
+        	delay(1000);
+        }
+      	if(reintentosJ1 == 0 || reintentosJ2 == 0){
+      		finDelJuego();
+        }
+      	
+    }
+}
+
+void switchJugador(){
+    if(jugadores == 2){
+        if(jugadorActivo == 1){
+        	jugadorActivo = 2;
+        } else {
+        	jugadorActivo = 1;
+        }
+    }
+}
+
+void finDelJuego(){
+  	delay(2000);
+	lcd.clear();
+  	if(jugadores == 2){
+  		lcd.print("Ganador J");
+      	if(reintentosJ1>0){
+      		lcd.print(1);
+        } else{
+        	lcd.print(2);
+        }
+    } else{
+  		lcd.print("Fin del juego!");
+    }
+  	lcd.setCursor(0,1);
+  	lcd.print("Puntaje: ");
+  	lcd.print(secuencia.length()-1);
+  	delay(2000);
+  	lcd.clear();
+  	reset();
+}
+
+void reset(){
+	//inicializacion del juego
+  	jugando = false;
+  	jugadores = 0;
+  	jugadorActivo = 0;
+  	dificultad = "";
+  	dificultadColores = 5;
+	reintentosJ1 = -1;
+  	reintentosJ2 = -1;
+  	esperandoAlJugador = false;
+  	secuencia = "";
+  	confJuego = false;
+  	replay = false;
+  	lcd.clear();
+}
